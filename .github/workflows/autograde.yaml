@@ -1,0 +1,34 @@
+name: Autograding
+
+on:
+  push:
+    paths:
+      - '**.py'
+      - '**.md'
+      - '**.csv'
+      - '**.json'
+  pull_request:
+
+jobs:
+  autograde:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+
+      - name: Run calc.py (示例参数)
+        run: |
+          python src/calc.py --student_id 20261234 --student_name 张三 --N 60
+
+      - name: Run autograder
+        run: |
+          python .github/classroom/autograder.py
