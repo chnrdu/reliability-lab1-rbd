@@ -4,11 +4,11 @@
 学生版：读取 components.csv + mission_profile.csv + model.json
 - 由 mission_profile 计算每个元件 duty
 - 由 model.json 计算系统任务可靠度
-- 生成 output/experiment_result.md
+- 生成 output/lab1_report_<student_id>_<name>.md
 - 内置 sanity checks
 
 用法：
-python src/calc.py --student_id 2026XXXXXX --student_name 张三 --N 60
+python src/calc.py --student_id 2026XXXXXX --student_name zhangsan --N 60
 """
 
 import csv
@@ -24,7 +24,6 @@ DATA_DIR = REPO_ROOT / "data"
 COMP_PATH = DATA_DIR / "components.csv"
 PROFILE_PATH = DATA_DIR / "mission_profile.csv"
 MODEL_PATH = DATA_DIR / "model.json"
-OUT_PATH = REPO_ROOT / "output" / "experiment_result.md"
 
 EXPERIMENT_NAME = "实验：完整搬运循环任务可靠度评估（学生版：RBD+任务剖面）"
 
@@ -127,6 +126,7 @@ def strip_parallel(node: Node) -> Node:
     return node
 
 def main():
+    import re
     ap = argparse.ArgumentParser()
     ap.add_argument("--student_id", required=True)
     ap.add_argument("--student_name", required=True)
@@ -134,6 +134,9 @@ def main():
     args = ap.parse_args()
     if args.N <= 0:
         raise ValueError("N 必须>0")
+    # 统一命名规范
+    safe_name = re.sub(r'[^\w\u4e00-\u9fa5]', '', str(args.student_name))
+    OUT_PATH = REPO_ROOT / "output" / f"lab1_report_{args.student_id}_{safe_name}.md"
 
     comps = load_components()
     component_ids = sorted(comps.keys(), key=lambda x: int(x[1:]))  # C1..C19
@@ -149,7 +152,31 @@ def main():
         lam_eff[cid] = lam * duty[cid]
         R_map[cid] = R_exp(lam_eff[cid], T)
 
+
     model = parse_model()
+
+    # 检查所有元件都被RBD结构引用
+    def collect_rbd_components(node):
+        if isinstance(node, str):
+            return {node}
+        if isinstance(node, dict):
+            if "series" in node:
+                s = set()
+                for x in node["series"]:
+                    s |= collect_rbd_components(x)
+                return s
+            if "parallel" in node:
+                s = set()
+                for x in node["parallel"]:
+                    s |= collect_rbd_components(x)
+                return s
+        return set()
+
+    rbd_cids = collect_rbd_components(model)
+    missing = [cid for cid in component_ids if cid not in rbd_cids]
+    if missing:
+        raise ValueError(f"RBD结构未包含所有元件，缺少: {missing}\n请检查model.json，确保所有元件都被引用。")
+
     R_sys = eval_node(model, R_map)
 
     # ---- sanity checks ----
@@ -223,7 +250,19 @@ def main():
     lines.append("")
 
     lines.append(f"> 报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("")
 
+    # 保留自定义区块内容（如果已存在）
+    custom_block_title = "## 8. 学生自定义补充区（请在此区块内补充任务1/3内容，不会被自动覆盖）"
+    custom_block = f"{custom_block_title}\n\n### 任务1：建模与公式\n（请在此处补充你的建模思路、公式推导等）\n\n### 任务3：工程解释与改进建议\n（请在此处补充你的工程分析、薄弱环节解释、改进建议等）\n"
+    if OUT_PATH.exists():
+        old = OUT_PATH.read_text(encoding="utf-8")
+        if custom_block_title in old:
+            # 保留旧自定义区块内容
+            custom_block = old.split(custom_block_title,1)[1].lstrip('\n')
+            custom_block = f"{custom_block_title}\n" + custom_block
+
+    lines.append(custom_block)
     OUT_PATH.write_text("\n".join(lines), encoding="utf-8")
     print(f"已生成：{OUT_PATH}")
     print(f"R_sys(T={T:.3f}h) = {R_sys:.6f}")
